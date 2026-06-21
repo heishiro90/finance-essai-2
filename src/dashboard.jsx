@@ -32,35 +32,58 @@ const COLORS = {
 };
 const pieColors = ["#22d3ee", "#10b981", "#f59e0b", "#a78bfa", "#ec4899", "#6366f1"];
 
+// ─── Number parsing ──────────────────────────────────────────────────
+// Handles every numeric format that can come out of Google Sheets,
+// whether US-style ("1,000.00") or French-style ("1 000,00" / "0,31").
+function parseLocaleNumber(str) {
+  let s = String(str).trim().replace(/\s/g, ""); // drop spaces (incl. nbsp)
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    // Both separators present → the LAST one is the decimal separator.
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      // French: "1.000,00" → dot = thousands, comma = decimal
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      // US: "1,000.00" → comma = thousands, dot = decimal
+      s = s.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    // Only a comma. "1,000" (groups of 3 digits) → thousands; "0,31" → decimal.
+    if (/^-?\d{1,3}(,\d{3})+$/.test(s)) {
+      s = s.replace(/,/g, "");
+    } else {
+      s = s.replace(",", ".");
+    }
+  }
+  // Only a dot, or a plain integer → parseFloat handles it directly.
+  return parseFloat(s);
+}
+
 // ─── Fetch helper ────────────────────────────────────────────────────
 async function fetchSheet(gid) {
   const res = await fetch(sheetURL(gid));
-  let csv = await res.text();
-  // Fix: Google Sheets French format — remove non-breaking spaces in numbers
-  csv = csv.replace(/(\d)[\u00A0\u202F](\d)/g, '$1$2');
+  const csv = await res.text();
   const { data } = Papa.parse(csv, { header: true, skipEmptyLines: true });
-  // Post-process: convert French number formats to actual numbers
+  // Post-process: turn numeric-looking strings into real numbers.
   return data.map(row => {
     const cleaned = {};
     for (const [key, val] of Object.entries(row)) {
       if (typeof val === "string") {
-        // Remove % sign and convert comma decimals: "31,0%" → 0.31, "24%" → 0.24
-        const pctMatch = val.match(/^(-?\d+[,.]?\d*)\s*%$/);
+        const s = val.trim();
+        // Percentages: "31,0%", "24%", "8.4%" → fraction (0.31, 0.24, 0.084)
+        const pctMatch = s.match(/^(-?[\d.,\s]+)\s*%$/);
         if (pctMatch) {
-          cleaned[key] = parseFloat(pctMatch[1].replace(',', '.')) / 100;
-          continue;
+          const n = parseLocaleNumber(pctMatch[1]);
+          if (!Number.isNaN(n)) { cleaned[key] = n / 100; continue; }
         }
-        // Convert French decimal numbers: "0,31" → 0.31
-        const numMatch = val.match(/^-?\d+,\d+$/);
-        if (numMatch) {
-          cleaned[key] = parseFloat(val.replace(',', '.'));
-          continue;
-        }
-        // Convert plain integers
-        const intMatch = val.match(/^-?\d+$/);
-        if (intMatch) {
-          cleaned[key] = parseInt(val, 10);
-          continue;
+        // Any other number: thousands separators and/or decimals, either convention.
+        // Must be made only of digits / separators (so dates like "2020-07-01"
+        // and labels like "Jan 20" or hex colors are left untouched).
+        if (/^-?[\d.,\s]+$/.test(s) && /\d/.test(s)) {
+          const n = parseLocaleNumber(s);
+          if (!Number.isNaN(n)) { cleaned[key] = n; continue; }
         }
       }
       cleaned[key] = val;
