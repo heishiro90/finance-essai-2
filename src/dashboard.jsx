@@ -32,6 +32,23 @@ const COLORS = {
 };
 const pieColors = ["#22d3ee", "#10b981", "#f59e0b", "#a78bfa", "#ec4899", "#6366f1"];
 
+// ─── X-axis labels ───────────────────────────────────────────────────
+// The "Date" column holds French labels like "juil. 2020". We turn each
+// quarter-start month (janv./avr./juil./oct.) into a short tag "T3 20",
+// and return "" for the others so only one label per quarter is shown.
+const FR_MONTHS = {
+  janv: 1, "févr": 2, "fév": 2, fevr: 2, mars: 3, avr: 4, mai: 5, juin: 6,
+  juil: 7, "août": 8, aout: 8, sept: 9, oct: 10, nov: 11, "déc": 12, dec: 12,
+};
+const quarterTick = (label) => {
+  if (typeof label !== "string") return "";
+  const m = label.toLowerCase().match(/([a-zà-ÿ]+)\.?\s+(\d{4})/);
+  if (!m) return "";
+  const month = FR_MONTHS[m[1]];
+  if (!month || month % 3 !== 1) return ""; // keep only Jan / Apr / Jul / Oct
+  return `T${Math.ceil(month / 3)} ${m[2].slice(2)}`;
+};
+
 // ─── Number parsing ──────────────────────────────────────────────────
 // Handles every numeric format that can come out of Google Sheets,
 // whether US-style ("1,000.00") or French-style ("1 000,00" / "0,31").
@@ -442,11 +459,9 @@ export default function Dashboard() {
               <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} />
               <XAxis
                 dataKey="month"
-                interval={2}
-                tickFormatter={(v) => {
-                  const d = new Date(v);
-                  return isNaN(d) ? v : d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
-                }}
+                interval={0}
+                tickLine={false}
+                tickFormatter={quarterTick}
                 tick={{ fill: "#f1f5f9", fontSize: 12, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}
                 axisLine={{ stroke: COLORS.border }}
               />
